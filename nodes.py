@@ -76,7 +76,7 @@ class IrodoriTTSModelLoader(io.ComfyNode):
         runtime_key = RuntimeKey(
             checkpoint=checkpoint_path,
             model_device=model_device,
-            codec_repo="facebook/dacvae-watermarked",
+            codec_repo="Aratako/Semantic-DACVAE-Japanese-32dim",
             model_precision=model_precision,
             codec_device=codec_device,
             codec_precision=codec_precision,
@@ -100,7 +100,7 @@ class IrodoriTTSModelLoaderHF(io.ComfyNode):
             display_name="IrodoriTTS Model Loader HF", 
             category=CATEGORY, 
             inputs=[
-                io.String.Input("hf_checkpoint", default="Aratako/Irodori-TTS-500M"), 
+                io.String.Input("hf_checkpoint", default="Aratako/Irodori-TTS-500M-v2"), 
                 io.Combo.Input("model_device", options=devices), 
                 io.Combo.Input("model_precision", options=precisions), 
                 io.Combo.Input("codec_device", options=devices), 
@@ -136,7 +136,7 @@ class IrodoriTTSModelLoaderHF(io.ComfyNode):
         runtime_key = RuntimeKey(
             checkpoint=checkpoint_path,
             model_device=model_device,
-            codec_repo="facebook/dacvae-watermarked",
+            codec_repo="Aratako/Semantic-DACVAE-Japanese-32dim",
             model_precision=model_precision,
             codec_device=codec_device,
             codec_precision=codec_precision,
@@ -321,10 +321,12 @@ class IrodoriTTSSampler(io.ComfyNode):
             inputs=[
                 IO_IRODORI_MODEL.Input("model", display_name="irodori_model"), 
                 io.String.Input("text", multiline=True), 
+                io.String.Input("caption", multiline=True, default="", tooltip="Optional caption/style-control text"),
                 io.Int.Input("seed", default=0, min=0, max=sys.maxsize), 
                 io.Int.Input("num_steps", default=40, min=1, max=120), 
                 io.Combo.Input("cfg_guidance_mode", options=["independent", "joint", "alternating"], default="independent"), 
                 io.Float.Input("cfg_scale_text", default=3.0, min=0.0, max=10.0, step=0.1), 
+                io.Float.Input("cfg_scale_caption", default=3.0, min=0.0, max=10.0, step=0.1),
                 io.Float.Input("cfg_scale_speaker", default=5.0, min=0.0, max=10.0, step=0.1), 
                 io.Boolean.Input("context_kv_cache", default=True), 
                 
@@ -338,12 +340,12 @@ class IrodoriTTSSampler(io.ComfyNode):
         )
     
     @classmethod
-    def execute(cls, model, text, seed, num_steps, cfg_guidance_mode, cfg_scale_text, cfg_scale_speaker, context_kv_cache, ref_audio_config={}, cfg_config={}, rescale_config={}):
+    def execute(cls, model, text, caption, seed, num_steps, cfg_guidance_mode, cfg_scale_text, cfg_scale_caption, cfg_scale_speaker, context_kv_cache, ref_audio_config={}, cfg_config={}, rescale_config={}):
         # Unpack optional configs
         ref_wav = ref_audio_config.get("ref_wav", None)
         no_ref = ref_wav == None
         ref_normalize_db = ref_audio_config.get("ref_normalize_db", None)
-        ref_ensure_max = ref_audio_config.get("ref_ensure_max", False)
+        ref_ensure_max = ref_audio_config.get("ref_ensure_max", True)
         max_ref_seconds = ref_audio_config.get("max_ref_seconds", 30.0)
         
         cfg_scale_override = cfg_config.get("cfg_scale_override", None)
@@ -359,6 +361,7 @@ class IrodoriTTSSampler(io.ComfyNode):
 
         req = SamplingRequest(
             text=text,
+            caption=caption if caption.strip() else None,
             ref_wav=ref_wav,
             ref_latent=None,
             no_ref=no_ref,
@@ -369,8 +372,10 @@ class IrodoriTTSSampler(io.ComfyNode):
             seconds=30.0,
             max_ref_seconds=max_ref_seconds,
             max_text_len=None,
+            max_caption_len=None,
             num_steps=num_steps,
             cfg_scale_text=cfg_scale_text,
+            cfg_scale_caption=cfg_scale_caption,
             cfg_scale_speaker=cfg_scale_speaker,
             cfg_guidance_mode=cfg_guidance_mode,
             cfg_scale=cfg_scale_override,

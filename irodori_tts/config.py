@@ -21,6 +21,14 @@ class ModelConfig:
     text_dim: int = 1280
     text_layers: int = 14
     text_heads: int = 10
+    use_caption_condition: bool = False
+    caption_vocab_size: int | None = None
+    caption_tokenizer_repo: str | None = None
+    caption_add_bos: bool | None = None
+    caption_dim: int | None = None
+    caption_layers: int | None = None
+    caption_heads: int | None = None
+    caption_mlp_ratio: float | None = None
     speaker_dim: int = 1280
     speaker_layers: int = 14
     speaker_heads: int = 10
@@ -38,10 +46,58 @@ class ModelConfig:
         return self.patched_latent_dim * self.speaker_patch_size
 
     @property
+    def use_speaker_condition(self) -> bool:
+        # Voice-design checkpoints are caption-driven and intentionally omit
+        # reference-speaker conditioning to avoid the easier shortcut.
+        return not bool(self.use_caption_condition)
+
+    @property
     def text_mlp_ratio_resolved(self) -> float:
         if self.text_mlp_ratio is None:
             return self.mlp_ratio
         return float(self.text_mlp_ratio)
+
+    @property
+    def caption_vocab_size_resolved(self) -> int:
+        if self.caption_vocab_size is None:
+            return int(self.text_vocab_size)
+        return int(self.caption_vocab_size)
+
+    @property
+    def caption_tokenizer_repo_resolved(self) -> str:
+        if self.caption_tokenizer_repo is None:
+            return self.text_tokenizer_repo
+        return str(self.caption_tokenizer_repo)
+
+    @property
+    def caption_add_bos_resolved(self) -> bool:
+        if self.caption_add_bos is None:
+            return bool(self.text_add_bos)
+        return bool(self.caption_add_bos)
+
+    @property
+    def caption_dim_resolved(self) -> int:
+        if self.caption_dim is None:
+            return int(self.text_dim)
+        return int(self.caption_dim)
+
+    @property
+    def caption_layers_resolved(self) -> int:
+        if self.caption_layers is None:
+            return int(self.text_layers)
+        return int(self.caption_layers)
+
+    @property
+    def caption_heads_resolved(self) -> int:
+        if self.caption_heads is None:
+            return int(self.text_heads)
+        return int(self.caption_heads)
+
+    @property
+    def caption_mlp_ratio_resolved(self) -> float:
+        if self.caption_mlp_ratio is None:
+            return self.text_mlp_ratio_resolved
+        return float(self.caption_mlp_ratio)
 
     @property
     def speaker_mlp_ratio_resolved(self) -> float:
@@ -70,6 +126,8 @@ class TrainConfig:
     muon_adjust_lr_fn: str = "match_rms_adamw"
     lr_scheduler: str = "none"
     warmup_steps: int = 0
+    caption_warmup: bool = False
+    caption_warmup_steps: int = 0
     stable_steps: int = 0
     min_lr_scale: float = 0.1
     max_steps: int = 200000
@@ -84,7 +142,9 @@ class TrainConfig:
     grad_clip_norm: float = 1.0
     gradient_accumulation_steps: int = 1
     max_text_len: int = 256
+    max_caption_len: int | None = None
     text_condition_dropout: float = 0.1
+    caption_condition_dropout: float = 0.1
     speaker_condition_dropout: float = 0.1
     max_latent_steps: int = 750
     fixed_target_latent_steps: int | None = 750
@@ -100,6 +160,12 @@ class TrainConfig:
     wandb_run_name: str | None = None
     wandb_mode: str = "online"
     ddp_find_unused_parameters: bool = False
+    lora_enabled: bool = False
+    lora_r: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.0
+    lora_bias: str = "none"
+    lora_target_modules: str = "diffusion_attn"
     seed: int = 0
 
 
@@ -107,6 +173,7 @@ class TrainConfig:
 class SamplingConfig:
     num_steps: int = 40
     cfg_scale_text: float = 3.0
+    cfg_scale_caption: float = 3.0
     cfg_scale_speaker: float = 5.0
     cfg_guidance_mode: str = "independent"
     cfg_scale: float | None = None
