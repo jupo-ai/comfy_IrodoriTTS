@@ -2,8 +2,6 @@ from comfy_api.latest import io
 import os
 import sys
 import hashlib
-from peft import PeftModel, LoraConfig, set_peft_model_state_dict
-from safetensors.torch import load_file
 import folder_paths
 
 from .irodori_tts.inference_runtime import (
@@ -11,8 +9,7 @@ from .irodori_tts.inference_runtime import (
     SamplingRequest,
     get_cached_runtime,
     list_available_runtime_devices,
-    list_available_runtime_precisions,
-    default_runtime_device
+    list_available_runtime_precisions
 )
 
 
