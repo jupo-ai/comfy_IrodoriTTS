@@ -12,6 +12,7 @@ class Extension(ComfyExtension):
             nodes.IrodoriTTSReferenceAudio, 
             nodes.IrodoriTTSAdvancedCFG, 
             nodes.IrodoriTTSRescaleConfig, 
+            nodes.IrodoriTTSTailConfig,
             nodes.IrodoriTTSSampler, 
             nodes.IrodoriTTSEmojiSelector, 
         ]

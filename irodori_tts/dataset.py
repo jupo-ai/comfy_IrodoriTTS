@@ -8,6 +8,7 @@ from typing import Any
 
 import torch
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 from .codec import patchify_latent
 from .tokenizer import PretrainedTextTokenizer
@@ -44,37 +45,65 @@ class LatentTextDataset(Dataset):
         latent_dim: int,
         max_latent_steps: int | None = None,
         subset_indices: list[int] | None = None,
+        enable_caption_condition: bool = False,
+        enable_speaker_condition: bool = True,
+        caption_key: str = "caption",
+        manifest_index: _ManifestIndex | None = None,
+        show_manifest_progress: bool = False,
+        manifest_progress_desc: str | None = None,
     ):
         self.manifest_path = Path(manifest_path)
         self.manifest_dir = self.manifest_path.parent
         self.latent_dim = latent_dim
         self.max_latent_steps = max_latent_steps
+        self.enable_caption_condition = bool(enable_caption_condition)
+        self.enable_speaker_condition = bool(enable_speaker_condition)
+        self.caption_key = str(caption_key)
+        self._manifest_fp = None
         subset_index_set: set[int] | None = None
         if subset_indices is not None:
             subset_index_set = {int(x) for x in subset_indices}
             if not subset_index_set:
                 raise ValueError("subset_indices must contain at least one index.")
 
-        self.samples: list[dict[str, Any]] = []
-        self.speaker_to_indices: dict[str, list[int]] = {}
-        for original_index, line in enumerate(
-            self.manifest_path.read_text(encoding="utf-8").splitlines()
-        ):
-            line = line.strip()
-            if not line:
-                continue
-            item = json.loads(line)
-            if "text" not in item or "latent_path" not in item:
-                raise ValueError(f"Invalid manifest line (needs text and latent_path): {line}")
-            if subset_index_set is not None and original_index not in subset_index_set:
-                continue
-            self.samples.append(item)
-            speaker_id = item.get("speaker_id")
-            if speaker_id is not None:
-                speaker_key = str(speaker_id)
-                self.speaker_to_indices.setdefault(speaker_key, []).append(len(self.samples) - 1)
+        if manifest_index is None:
+            manifest_index = _ManifestIndex.build(
+                manifest_path=self.manifest_path,
+                caption_key=self.caption_key,
+                show_progress=show_manifest_progress,
+                progress_desc=manifest_progress_desc,
+            )
+        elif manifest_index.caption_key != self.caption_key:
+            raise ValueError(
+                "manifest_index caption_key mismatch: "
+                f"expected {self.caption_key!r}, got {manifest_index.caption_key!r}"
+            )
+        self.manifest_index = manifest_index
 
-        if not self.samples:
+        if subset_index_set is None:
+            self.sample_indices = list(range(len(self.manifest_index.offsets)))
+        else:
+            max_index = len(self.manifest_index.offsets) - 1
+            invalid_indices = sorted(x for x in subset_index_set if x < 0 or x > max_index)
+            if invalid_indices:
+                raise ValueError(
+                    f"subset_indices contain out-of-range values for manifest: {invalid_indices[:8]}"
+                )
+            self.sample_indices = sorted(subset_index_set)
+
+        self.speaker_to_indices: dict[str, list[int]] = {}
+        self.speaker_labeled_count = 0
+        self.caption_labeled_count = 0
+        for local_index, sample_index in enumerate(self.sample_indices):
+            speaker_id = self.manifest_index.speaker_ids[sample_index]
+            if speaker_id is not None:
+                self.speaker_labeled_count += 1
+                if self.enable_speaker_condition:
+                    self.speaker_to_indices.setdefault(speaker_id, []).append(local_index)
+            if self.manifest_index.has_caption[sample_index]:
+                self.caption_labeled_count += 1
+
+        if not self.sample_indices:
             raise ValueError(f"No valid samples in manifest: {self.manifest_path}")
 
     def _resolve_latent_path(self, latent_path_raw: str) -> Path:
@@ -91,54 +120,154 @@ class LatentTextDataset(Dataset):
             latent = latent[: self.max_latent_steps]
         return latent
 
+    def _manifest_file(self):
+        if self._manifest_fp is None or self._manifest_fp.closed:
+            self._manifest_fp = self.manifest_path.open("r", encoding="utf-8")
+        return self._manifest_fp
+
+    def _read_item(self, index: int) -> dict[str, Any]:
+        sample_index = self.sample_indices[index]
+        fp = self._manifest_file()
+        fp.seek(self.manifest_index.offsets[sample_index])
+        line = fp.readline()
+        if line == "":
+            raise ValueError(
+                f"Unexpected EOF while reading manifest sample_index={sample_index}: {self.manifest_path}"
+            )
+        item = json.loads(line)
+        if "text" not in item or "latent_path" not in item:
+            raise ValueError(f"Invalid manifest line (needs text and latent_path): {line.rstrip()}")
+        return item
+
     def __len__(self) -> int:
-        return len(self.samples)
+        return len(self.sample_indices)
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        item = self.samples[index]
+        item = self._read_item(index)
         latent = self._load_latent(item["latent_path"])
 
         ref_index = index
-        speaker_id = item.get("speaker_id")
-        has_speaker = speaker_id is not None
-        if speaker_id is not None:
-            speaker_key = str(speaker_id)
-            candidates = self.speaker_to_indices.get(speaker_key, [])
+        has_speaker = False
+        if self.enable_speaker_condition:
+            speaker_id = self.manifest_index.speaker_ids[self.sample_indices[index]]
+            candidates = self.speaker_to_indices.get(speaker_id, [])
             if len(candidates) > 1:
                 alternatives = [i for i in candidates if i != index]
                 if alternatives:
                     ref_index = random.choice(alternatives)
+                    has_speaker = True
 
         if ref_index == index:
             ref_latent = latent
         else:
-            ref_item = self.samples[ref_index]
+            ref_item = self._read_item(ref_index)
             ref_latent = self._load_latent(ref_item["latent_path"])
         return {
             "text": item["text"],
+            "caption": str(item.get(self.caption_key, "")) if self.enable_caption_condition else "",
+            "has_caption": bool(str(item.get(self.caption_key, "")).strip())
+            if self.enable_caption_condition
+            else False,
             "latent": latent,
             "ref_latent": ref_latent,
             "has_speaker": has_speaker,
         }
 
 
+@dataclass(frozen=True)
+class _ManifestIndex:
+    offsets: list[int]
+    speaker_ids: list[str | None]
+    has_caption: list[bool]
+    caption_key: str
+
+    @classmethod
+    def build(
+        cls,
+        manifest_path: Path,
+        *,
+        caption_key: str = "caption",
+        show_progress: bool = False,
+        progress_desc: str | None = None,
+    ) -> _ManifestIndex:
+        offsets: list[int] = []
+        speaker_ids: list[str | None] = []
+        has_caption: list[bool] = []
+        total_bytes = manifest_path.stat().st_size
+        if progress_desc is None:
+            progress_desc = f"Index Manifest ({manifest_path.name})"
+        pbar = tqdm(
+            total=total_bytes,
+            unit="B",
+            unit_scale=True,
+            dynamic_ncols=True,
+            desc=progress_desc,
+            disable=not show_progress,
+            leave=False,
+        )
+        with manifest_path.open("r", encoding="utf-8") as f:
+            try:
+                while True:
+                    offset = f.tell()
+                    line = f.readline()
+                    if line == "":
+                        break
+                    pbar.update(len(line.encode("utf-8")))
+                    if not line.strip():
+                        continue
+                    item = json.loads(line)
+                    if "text" not in item or "latent_path" not in item:
+                        raise ValueError(
+                            f"Invalid manifest line (needs text and latent_path): {line.rstrip()}"
+                        )
+                    offsets.append(offset)
+                    speaker_id = item.get("speaker_id")
+                    speaker_ids.append(None if speaker_id is None else str(speaker_id))
+                    has_caption.append(bool(str(item.get(caption_key, "")).strip()))
+            finally:
+                pbar.close()
+        if not offsets:
+            raise ValueError(f"No valid samples in manifest: {manifest_path}")
+        return cls(
+            offsets=offsets,
+            speaker_ids=speaker_ids,
+            has_caption=has_caption,
+            caption_key=str(caption_key),
+        )
+
+
 @dataclass
 class TTSCollator:
     tokenizer: PretrainedTextTokenizer
+    caption_tokenizer: PretrainedTextTokenizer | None
     latent_dim: int
     latent_patch_size: int
     fixed_target_latent_steps: int | None = None
     fixed_target_full_mask: bool = False
     max_text_len: int = 256
+    max_caption_len: int | None = None
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         texts = [x["text"] for x in batch]
+        captions = [x["caption"] for x in batch]
         latents = [x["latent"] for x in batch]  # each: (T, D)
         ref_latents = [x["ref_latent"] for x in batch]  # each: (T_ref, D)
         has_speaker = torch.tensor([bool(x["has_speaker"]) for x in batch], dtype=torch.bool)
+        has_caption = torch.tensor([bool(x["has_caption"]) for x in batch], dtype=torch.bool)
         bsz = len(latents)
 
         text_ids, text_mask = self.tokenizer.batch_encode(texts, max_length=self.max_text_len)
+        caption_ids = None
+        caption_mask = None
+        if self.caption_tokenizer is not None:
+            max_caption_len = self.max_caption_len
+            if max_caption_len is None:
+                max_caption_len = self.max_text_len
+            caption_ids, caption_mask = self.caption_tokenizer.batch_encode(
+                captions,
+                max_length=max_caption_len,
+            )
+            caption_mask = caption_mask & has_caption[:, None]
 
         if self.fixed_target_latent_steps is not None:
             max_t = int(self.fixed_target_latent_steps)
@@ -185,7 +314,7 @@ class TTSCollator:
         latent_mask_valid_patched = _patch_mask(latent_mask_valid)
         ref_mask_patched = _patch_mask(ref_mask)
 
-        return {
+        out = {
             "text_ids": text_ids,
             "text_mask": text_mask,
             "latent": latent_batch,
@@ -201,3 +330,8 @@ class TTSCollator:
             "ref_latent_mask_patched": ref_mask_patched,
             "has_speaker": has_speaker,
         }
+        if caption_ids is not None and caption_mask is not None:
+            out["caption_ids"] = caption_ids
+            out["caption_mask"] = caption_mask
+            out["has_caption"] = has_caption
+        return out

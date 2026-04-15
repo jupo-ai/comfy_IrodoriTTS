@@ -67,8 +67,20 @@ const extension = {
                     }
                 });
                 this.addWidget("button", button_label, "emoji", () => {
-                    navigator.clipboard.writeText(emoji);
-                        app.extensionManager.toast.add({
+                    if (navigator.clipboard && window.isSecureContext) {
+                        navigator.clipboard.writeText(emoji);
+                    } else {
+                        // clipboardのアクセスが拒否された時のフォールバック
+                        const ta = document.createElement("textarea");
+                        ta.value = emoji;
+                        ta.style.position = "fixed";
+                        ta.style.opacity = "0";
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand("copy");
+                        document.body.removeChild(ta);
+                    }                    
+                    app.extensionManager.toast.add({
                         severity: "info",
                         summary: "Information",
                         detail: emoji+"をコピーしました",

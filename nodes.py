@@ -30,9 +30,65 @@ IO_IRODORI_MODEL = io.Custom("IRODORI_MODEL")
 IO_IRODORI_REF_CONFIG = io.Custom("IRODORI_REF_CONFIG")
 IO_IRODORI_CFG_CONFIG = io.Custom("IRODORI_CFG_CONFIG")
 IO_IRODORI_RESCALE_CONFIG = io.Custom("IRODORI_RESCALE_CONFIG")
+IO_IRODORI_TAIL_CONFIG = io.Custom("IRODORI_TAIL_CONFIG")
 
 CATEGORY = "Irodori-TTS"
 
+# Maps checkpoint latent_dim -> compatible codec HF repo
+_CODEC_BY_LATENT_DIM: dict[int, str] = {
+    32: "Aratako/Semantic-DACVAE-Japanese-32dim",
+    128: "facebook/dacvae-watermarked",
+}
+_FALLBACK_CODEC_REPO = "Aratako/Semantic-DACVAE-Japanese-32dim"
+
+
+def _sniff_latent_dim(checkpoint_path: str) -> int | None:
+    """Read latent_dim from checkpoint metadata without loading model weights.
+
+    Supports .safetensors (reads config_json metadata key) and
+    .pt/.pth (reads model_config dict). Returns None on any failure.
+    """
+    import json
+    from pathlib import Path as _Path
+    path = _Path(checkpoint_path)
+    if path.suffix.lower() == ".safetensors":
+        try:
+            from safetensors import safe_open
+            with safe_open(str(path), framework="pt", device="cpu") as handle:
+                metadata = handle.metadata() or {}
+            raw = metadata.get("config_json")
+            if raw:
+                cfg = json.loads(raw)
+                if isinstance(cfg, dict) and "latent_dim" in cfg:
+                    return int(cfg["latent_dim"])
+        except Exception:
+            pass
+    elif path.suffix.lower() in (".pt", ".pth"):
+        try:
+            import torch
+            ckpt = torch.load(str(path), map_location="cpu", weights_only=True)
+            if isinstance(ckpt, dict):
+                model_cfg = ckpt.get("model_config", {})
+                if isinstance(model_cfg, dict) and "latent_dim" in model_cfg:
+                    return int(model_cfg["latent_dim"])
+        except Exception:
+            pass
+    return None
+
+
+def _resolve_codec_repo(checkpoint_path: str) -> str:
+    """Return the HuggingFace codec repo ID compatible with the given checkpoint.
+
+    Inspects the checkpoint's latent_dim via _sniff_latent_dim and looks it up
+    in _CODEC_BY_LATENT_DIM. Falls back to _FALLBACK_CODEC_REPO if the dimension
+    is unknown or cannot be read.
+    """
+    latent_dim = _sniff_latent_dim(checkpoint_path)
+    if latent_dim is not None:
+        codec = _CODEC_BY_LATENT_DIM.get(latent_dim)
+        if codec:
+            return codec
+    return _FALLBACK_CODEC_REPO
 
 
 # ===============================================
@@ -79,7 +135,7 @@ class IrodoriTTSModelLoader(io.ComfyNode):
         runtime_key = RuntimeKey(
             checkpoint=checkpoint_path,
             model_device=model_device,
-            codec_repo="facebook/dacvae-watermarked",
+            codec_repo=_resolve_codec_repo(checkpoint_path),
             model_precision=model_precision,
             codec_device=codec_device,
             codec_precision=codec_precision,
@@ -139,7 +195,7 @@ class IrodoriTTSModelLoaderHF(io.ComfyNode):
         runtime_key = RuntimeKey(
             checkpoint=checkpoint_path,
             model_device=model_device,
-            codec_repo="facebook/dacvae-watermarked",
+            codec_repo=_resolve_codec_repo(checkpoint_path),
             model_precision=model_precision,
             codec_device=codec_device,
             codec_precision=codec_precision,
@@ -310,7 +366,65 @@ class IrodoriTTSRescaleConfig(io.ComfyNode):
         }
         return io.NodeOutput(config)
     
+
+
+# ===============================================
+# Irodori Tail Config
+# ===============================================
+class IrodoriTTSTailConfig(io.ComfyNode):
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="IrodoriTTSTailConfig", 
+            display_name="IrodoriTTS Tail Config", 
+            category=CATEGORY, 
+            inputs=[
+                io.Boolean.Input(
+                    "trim_tail", 
+                    default=True, 
+                    tooltip="Trim trailing silence via flattening heuristic"
+                ), 
+                io.Int.Input(
+                    "tail_window_size", 
+                    default=20, 
+                    min=0, 
+                    max=255, 
+                    step=1, 
+                    tooltip="Window size used for tail trimming"
+                ), 
+                io.Float.Input(
+                    "tail_std_threshold", 
+                    default=0.05, 
+                    min=0, 
+                    max=1, 
+                    step=0.01, 
+                    tooltip="Std threshold for tail trimming"
+                ), 
+                io.Float.Input(
+                    "tail_mean_threshold", 
+                    default=0.1, 
+                    min=0, 
+                    max=1, 
+                    step=0.01, 
+                    tooltip="Mean threshold for tail trimming"
+                ), 
+            ], 
+            outputs=[
+                IO_IRODORI_TAIL_CONFIG.Output(display_name="tail_config"), 
+            ], 
+        )
     
+    @classmethod
+    def execute(cls, trim_tail, tail_window_size, tail_std_threshold, tail_mean_threshold):
+        config = {
+            "trim_tail": trim_tail if trim_tail else False,
+            "tail_window_size": 20 if tail_window_size is None else tail_window_size,
+            "tail_std_threshold": 0.05 if tail_std_threshold is None else tail_std_threshold,
+            "tail_mean_threshold": 0.1 if tail_mean_threshold is None else tail_mean_threshold,
+        }
+        return io.NodeOutput(config)
+    
+
 # ===============================================
 # Irodori Sampler
 # ===============================================
@@ -324,6 +438,7 @@ class IrodoriTTSSampler(io.ComfyNode):
             inputs=[
                 IO_IRODORI_MODEL.Input("model", display_name="irodori_model"), 
                 io.String.Input("text", multiline=True), 
+                io.String.Input("caption", multiline=True), 
                 io.Int.Input("seed", default=0, min=0, max=sys.maxsize), 
                 io.Int.Input("num_steps", default=40, min=1, max=120), 
                 io.Combo.Input("cfg_guidance_mode", options=["independent", "joint", "alternating"], default="independent"), 
@@ -334,6 +449,7 @@ class IrodoriTTSSampler(io.ComfyNode):
                 IO_IRODORI_REF_CONFIG.Input("ref_audio_config", display_name="ref_audio_config", optional=True), 
                 IO_IRODORI_CFG_CONFIG.Input("cfg_config", display_name="cfg_config", optional=True), 
                 IO_IRODORI_RESCALE_CONFIG.Input("rescale_config", display_name="rescale_config", optional=True), 
+                IO_IRODORI_TAIL_CONFIG.Input("tail_config", display_name="tail_config", optional=True), 
             ], 
             outputs=[
                 io.Audio.Output(), 
@@ -341,7 +457,7 @@ class IrodoriTTSSampler(io.ComfyNode):
         )
     
     @classmethod
-    def execute(cls, model, text, seed, num_steps, cfg_guidance_mode, cfg_scale_text, cfg_scale_speaker, context_kv_cache, ref_audio_config={}, cfg_config={}, rescale_config={}):
+    def execute(cls, model, text, caption, seed, num_steps, cfg_guidance_mode, cfg_scale_text, cfg_scale_speaker, context_kv_cache, ref_audio_config={}, cfg_config={}, rescale_config={}, tail_config={}):
         # Unpack optional configs
         ref_wav = ref_audio_config.get("ref_wav", None)
         no_ref = ref_wav == None
@@ -360,8 +476,13 @@ class IrodoriTTSSampler(io.ComfyNode):
         speaker_kv_min_t = rescale_config.get("speaker_kv_min_t", 0.9)
         speaker_kv_max_layers = rescale_config.get("speaker_kv_max_layers", None)
 
+        trim_tail = tail_config.get("trim_tail", True)
+        tail_window_size = tail_config.get("tail_window_size", 20)
+        tail_std_threshold = tail_config.get("tail_std_threshold", 0.05)
+        tail_mean_threshold = tail_config.get("tail_mean_threshold", 0.1)
         req = SamplingRequest(
             text=text,
+            caption=caption,
             ref_wav=ref_wav,
             ref_latent=None,
             no_ref=no_ref,
@@ -372,6 +493,7 @@ class IrodoriTTSSampler(io.ComfyNode):
             seconds=30.0,
             max_ref_seconds=max_ref_seconds,
             max_text_len=None,
+            max_caption_len=None,
             num_steps=num_steps,
             cfg_scale_text=cfg_scale_text,
             cfg_scale_speaker=cfg_scale_speaker,
@@ -387,7 +509,10 @@ class IrodoriTTSSampler(io.ComfyNode):
             speaker_kv_min_t=speaker_kv_min_t,
             speaker_kv_max_layers=speaker_kv_max_layers,
             seed=seed,
-            trim_tail=True,
+            trim_tail=trim_tail,
+            tail_window_size=tail_window_size,
+            tail_std_threshold=tail_std_threshold,
+            tail_mean_threshold=tail_mean_threshold,
         )
         
         result = model.synthesize(req, log_fn=print)
