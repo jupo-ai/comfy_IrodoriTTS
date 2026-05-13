@@ -174,3 +174,38 @@ IrodoriTTSで使いやすい絵文字を選ぶためのUIノードです。
 
 生成処理に渡す出力はありません。テキスト入力へ絵文字を入力するための補助として使用します。
 
+## Irodori Character Voice Sampler
+
+Irodori Character Voice対応チェックポイントで、キャラクター画像を条件に音声を生成します。
+
+既存の`IrodoriTTS Model Loader`の`irodori_model_config`を接続します。通常のIrodoriTTS Samplerとは別ノードで、参照音声やVoiceDesignキャプションは使用しません。
+
+### Required Inputs
+
+| Input | Default | 説明 |
+| --- | --- | --- |
+| `model_config` | - | `IrodoriTTS Model Loader`の出力を接続します。Character Voice対応チェックポイントを選択してください。 |
+| `character_image` | - | 声質や話し方の条件に使うキャラクター画像です。バッチ画像の場合は先頭の1枚を使用します。 |
+| `text` | - | 読み上げるテキストです。 |
+| `seed` | `0` | 生成シードです。同じ条件で別候補を生成したい場合は値を変えます。 |
+| `seconds` | `30.0` | 生成する音声長です。Character Voiceのデモ実装では30秒固定が標準です。 |
+| `num_steps` | `40` | サンプリングステップ数です。 |
+| `cfg_scale_character` | `3.0` | キャラクター画像条件のCFG強度です。上げるほど画像条件への追従が強くなります。 |
+
+### Optional Config Inputs
+
+| Input | 接続するノード | 説明 |
+| --- | --- | --- |
+| `cfg_config` | `IrodoriTTS CFG Config` | テキスト条件のCFG強度、CFG方式、適用時刻を指定します。`cfg_scale_speaker`は使用されません。 |
+| `rescale_config` | `IrodoriTTS Rescale Config` | Rescale補正を指定します。speaker K/V補正は使用されません。 |
+| `trim_tail_config` | `IrodoriTTS Trim Tail Config` | 末尾切り詰め判定のしきい値を指定します。Samplerの`trim_tail`が有効なときに使われます。 |
+
+### Other Inputs
+
+| Input | Default | 説明 |
+| --- | --- | --- |
+| `batch_size` | `1` | 同一条件で生成する候補数です。大きくするとVRAM使用量が増えます。 |
+| `decode_mode` | `sequential` | codecデコード方式です。`sequential`は省VRAM、`batch`は一括デコードです。 |
+| `context_kv_cache` | `True` | コンテキストK/Vキャッシュを使います。通常は有効のままで構いません。 |
+| `max_text_len` | `0` | テキストtoken長の上限です。`0`の場合はチェックポイント側の標準値を使います。 |
+| `trim_tail` | `True` | 末尾の無音や平坦化した部分を切り詰めます。 |
