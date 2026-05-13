@@ -212,3 +212,6 @@ data/*
 
 # Reference repositories
 reference/
+
+# Local-only private nodes
+py/nodes/private/

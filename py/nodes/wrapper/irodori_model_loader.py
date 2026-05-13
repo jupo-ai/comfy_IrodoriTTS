@@ -33,43 +33,36 @@ class IrodoriModelLoader(io.ComfyNode):
                 io.Combo.Input(
                     "model_device",
                     options=devices,
-                    advanced=True,
                     tooltip="TTSモデル本体を実行するデバイスです。通常はcudaを推奨します。",
                 ),
                 io.Combo.Input(
                     "model_precision",
                     options=precisions,
-                    advanced=True,
                     tooltip="TTSモデル本体の計算精度です。cudaではbf16でVRAMを節約できます。",
                 ),
                 io.Combo.Input(
                     "codec_device",
                     options=devices,
-                    advanced=True,
                     tooltip="DACVAE codecを実行するデバイスです。VRAM節約時はcpuも選べます。",
                 ),
                 io.Combo.Input(
                     "codec_precision",
                     options=precisions,
-                    advanced=True,
                     tooltip="DACVAE codecの計算精度です。cpuではfp32を使用してください。",
                 ),
                 io.Boolean.Input(
                     "enable_watermark",
                     default=False,
-                    advanced=True,
                     tooltip="codec側のウォーターマーク処理を有効にします。通常は無効で構いません。",
                 ),
                 io.Boolean.Input(
                     "compile_model",
                     default=False,
-                    advanced=True,
                     tooltip="torch.compileで推論関数をコンパイルします。初回が遅くなり、環境によっては不安定です。",
                 ),
                 io.Boolean.Input(
                     "compile_dynamic",
                     default=False,
-                    advanced=True,
                     tooltip="torch.compileのdynamicモードを有効にします。入力長が変わる場合向けですが、通常は無効で構いません。",
                 ),
             ],

@@ -43,7 +43,6 @@ class IrodoriRescaleConfig(io.ComfyNode):
                     min=0.0,
                     max=5.0,
                     step=0.05,
-                    advanced=True,
                     tooltip="話者条件のK/Vを強める係数です。0なら無効です。",
                 ),
                 io.Float.Input(
@@ -52,7 +51,6 @@ class IrodoriRescaleConfig(io.ComfyNode):
                     min=0.0,
                     max=1.0,
                     step=0.05,
-                    advanced=True,
                     tooltip="speaker_kv_scaleを適用し始める拡散時刻です。",
                 ),
                 io.Int.Input(
@@ -61,7 +59,6 @@ class IrodoriRescaleConfig(io.ComfyNode):
                     min=-1,
                     max=64,
                     step=1,
-                    advanced=True,
                     tooltip="speaker_kv_scaleを適用する最大レイヤー数です。-1なら全レイヤーです。",
                 ),
             ],

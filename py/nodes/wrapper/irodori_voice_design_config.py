@@ -31,7 +31,6 @@ class IrodoriVoiceDesignConfig(io.ComfyNode):
                     default=0,
                     min=0,
                     max=4096,
-                    advanced=True,
                     tooltip="caption token長の上限です。0ならチェックポイント既定値を使います。",
                 ),
             ],

@@ -13,10 +13,13 @@ from ...node_utils import mk_name
 from .common import CATEGORY, PACKAGE_NAME
 from .irodori_common import (
     IO_CFG_CONFIG,
+    IO_DURATION_CONFIG,
     IO_LORA_STACK,
     IO_MODEL_CONFIG,
     IO_REF_CONFIG,
     IO_RESCALE_CONFIG,
+    IO_SCHEDULE_CONFIG,
+    IO_TRIM_TAIL_CONFIG,
     IO_VOICE_DESIGN_CONFIG,
     none_if_non_positive,
 )
@@ -55,33 +58,6 @@ class IrodoriTTSSampler(io.ComfyNode):
                     step=0.5,
                     tooltip="生成する音声長です。0ならv3モデルでは自動推定し、duration predictorのないモデルでは30秒にフォールバックします。",
                 ),
-                io.Float.Input(
-                    "duration_scale",
-                    default=1.0,
-                    min=0.1,
-                    max=3.0,
-                    step=0.01,
-                    advanced=True,
-                    tooltip="v3自動秒数推定の倍率です。secondsが0のときに有効で、1より大きいと長く、小さいと短くなります。",
-                ),
-                io.Float.Input(
-                    "min_seconds",
-                    default=0.5,
-                    min=0.1,
-                    max=120.0,
-                    step=0.1,
-                    advanced=True,
-                    tooltip="v3自動秒数推定で許可する最短秒数です。",
-                ),
-                io.Float.Input(
-                    "max_seconds",
-                    default=30.0,
-                    min=0.1,
-                    max=120.0,
-                    step=0.5,
-                    advanced=True,
-                    tooltip="v3自動秒数推定で許可する最長秒数です。secondsを手動指定した場合もこの範囲に丸めます。",
-                ),
                 io.Int.Input(
                     "num_steps",
                     default=40,
@@ -109,30 +85,37 @@ class IrodoriTTSSampler(io.ComfyNode):
                     optional=True,
                     tooltip="CFGの詳細設定です。未接続なら標準値を使用します。",
                 ),
+                IO_DURATION_CONFIG.Input(
+                    "duration_config",
+                    optional=True,
+                    tooltip="v3自動秒数推定の詳細設定です。未接続なら標準値を使用します。",
+                ),
                 IO_RESCALE_CONFIG.Input(
                     "rescale_config",
                     optional=True,
                     tooltip="rescaleやspeaker K/V補正の設定です。未接続なら無効です。",
+                ),
+                IO_SCHEDULE_CONFIG.Input(
+                    "schedule_config",
+                    optional=True,
+                    tooltip="RFサンプリングの時刻スケジュール設定です。未接続ならlinearを使用します。",
                 ),
                 io.Int.Input(
                     "batch_size",
                     default=1,
                     min=1,
                     max=16,
-                    advanced=True,
                     tooltip="同じ条件で同時生成する音声のバッチ数です。出力AUDIOのbatch方向に複数候補を格納します。",
                 ),
                 io.Combo.Input(
                     "decode_mode",
                     options=["sequential", "batch"],
                     default="sequential",
-                    advanced=True,
                     tooltip="codecデコード方式です。batchは速い場合がありますがVRAMを多く使います。",
                 ),
                 io.Boolean.Input(
                     "context_kv_cache",
                     default=True,
-                    advanced=True,
                     tooltip="コンテキストK/Vキャッシュを使用します。通常は有効を推奨します。",
                 ),
                 io.Int.Input(
@@ -140,40 +123,17 @@ class IrodoriTTSSampler(io.ComfyNode):
                     default=0,
                     min=0,
                     max=4096,
-                    advanced=True,
                     tooltip="テキストtoken長の上限です。0ならチェックポイント既定値を使います。",
                 ),
                 io.Boolean.Input(
                     "trim_tail",
                     default=True,
-                    advanced=True,
                     tooltip="末尾の無音や平坦化した部分を推定して切り詰めます。",
                 ),
-                io.Int.Input(
-                    "tail_window_size",
-                    default=20,
-                    min=1,
-                    max=200,
-                    advanced=True,
-                    tooltip="末尾切り詰め判定に使う潜在窓サイズです。",
-                ),
-                io.Float.Input(
-                    "tail_std_threshold",
-                    default=0.05,
-                    min=0.0,
-                    max=1.0,
-                    step=0.01,
-                    advanced=True,
-                    tooltip="末尾切り詰め判定の標準偏差しきい値です。",
-                ),
-                io.Float.Input(
-                    "tail_mean_threshold",
-                    default=0.1,
-                    min=0.0,
-                    max=1.0,
-                    step=0.01,
-                    advanced=True,
-                    tooltip="末尾切り詰め判定の平均値しきい値です。",
+                IO_TRIM_TAIL_CONFIG.Input(
+                    "trim_tail_config",
+                    optional=True,
+                    tooltip="末尾切り詰め判定の詳細設定です。未接続なら標準値を使用します。",
                 ),
             ],
             outputs=[
@@ -188,23 +148,20 @@ class IrodoriTTSSampler(io.ComfyNode):
         text: str,
         seed: int,
         seconds: float,
-        duration_scale: float,
-        min_seconds: float,
-        max_seconds: float,
         num_steps: int,
         batch_size: int,
         decode_mode: str,
         context_kv_cache: bool,
         max_text_len: int,
         trim_tail: bool,
-        tail_window_size: int,
-        tail_std_threshold: float,
-        tail_mean_threshold: float,
         lora_stack: list | None = None,
         ref_config: dict | None = None,
         voice_design_config: dict | None = None,
         cfg_config: dict | None = None,
+        duration_config: dict | None = None,
         rescale_config: dict | None = None,
+        schedule_config: dict | None = None,
+        trim_tail_config: dict | None = None,
     ):
         lora_stack = list(lora_stack or [])
         lora_paths = tuple(str(item["path"]) for item in lora_stack if item.get("path"))
@@ -218,6 +175,9 @@ class IrodoriTTSSampler(io.ComfyNode):
             codec_device=str(model_config.get("codec_device", "cpu")),
             codec_precision=str(model_config.get("codec_precision", "fp32")),
             enable_watermark=bool(model_config.get("enable_watermark", False)),
+            silentcipher_watermark_enabled=bool(
+                model_config.get("silentcipher_watermark_enabled", False)
+            ),
             compile_model=bool(model_config.get("compile_model", False)),
             compile_dynamic=bool(model_config.get("compile_dynamic", False)),
             lora_paths=lora_paths,
@@ -226,7 +186,10 @@ class IrodoriTTSSampler(io.ComfyNode):
         ref_config = ref_config or {}
         voice_design_config = voice_design_config or {}
         cfg_config = cfg_config or {}
+        duration_config = duration_config or {}
         rescale_config = rescale_config or {}
+        schedule_config = schedule_config or {}
+        trim_tail_config = trim_tail_config or {}
 
         cfg_guidance_mode = cfg_config.get("cfg_guidance_mode", "independent")
         cfg_scale_text = float(cfg_config.get("cfg_scale_text", 3.0))
@@ -244,9 +207,9 @@ class IrodoriTTSSampler(io.ComfyNode):
             num_candidates=int(batch_size),
             decode_mode=str(decode_mode),
             seconds=none_if_non_positive(float(seconds)),
-            duration_scale=float(duration_scale),
-            min_seconds=float(min_seconds),
-            max_seconds=float(max_seconds),
+            duration_scale=float(duration_config.get("duration_scale", 1.0)),
+            min_seconds=float(duration_config.get("min_seconds", 0.5)),
+            max_seconds=float(duration_config.get("max_seconds", 30.0)),
             max_ref_seconds=ref_config.get("max_ref_seconds", 30.0),
             max_text_len=none_if_non_positive(int(max_text_len)),
             max_caption_len=voice_design_config.get("max_caption_len", None),
@@ -266,10 +229,12 @@ class IrodoriTTSSampler(io.ComfyNode):
             speaker_kv_min_t=rescale_config.get("speaker_kv_min_t", 0.9),
             speaker_kv_max_layers=rescale_config.get("speaker_kv_max_layers", None),
             seed=int(seed),
+            t_schedule_mode=str(schedule_config.get("t_schedule_mode", "linear")),
+            sway_coeff=float(schedule_config.get("sway_coeff", -1.0)),
             trim_tail=bool(trim_tail),
-            tail_window_size=int(tail_window_size),
-            tail_std_threshold=float(tail_std_threshold),
-            tail_mean_threshold=float(tail_mean_threshold),
+            tail_window_size=int(trim_tail_config.get("tail_window_size", 20)),
+            tail_std_threshold=float(trim_tail_config.get("tail_std_threshold", 0.05)),
+            tail_mean_threshold=float(trim_tail_config.get("tail_mean_threshold", 0.1)),
             lora_scales=lora_scales,
         )
 

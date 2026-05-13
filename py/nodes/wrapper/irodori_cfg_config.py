@@ -41,7 +41,6 @@ class IrodoriCFGConfig(io.ComfyNode):
                     min=0.0,
                     max=10.0,
                     step=0.1,
-                    advanced=True,
                     tooltip="全CFG条件に共通の強度を指定します。0なら個別scaleを使用します。",
                 ),
                 io.Float.Input(
@@ -50,7 +49,6 @@ class IrodoriCFGConfig(io.ComfyNode):
                     min=0.0,
                     max=1.0,
                     step=0.05,
-                    advanced=True,
                     tooltip="CFGを適用する拡散時刻の下限です。通常は0.5で構いません。",
                 ),
                 io.Float.Input(
@@ -59,7 +57,6 @@ class IrodoriCFGConfig(io.ComfyNode):
                     min=0.0,
                     max=1.0,
                     step=0.05,
-                    advanced=True,
                     tooltip="CFGを適用する拡散時刻の上限です。通常は1.0で構いません。",
                 ),
             ],

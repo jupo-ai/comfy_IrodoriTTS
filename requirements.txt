@@ -8,4 +8,5 @@ transformers<5
 sentencepiece>=0.1.99
 soundfile>=0.12.0
 imageio-ffmpeg>=0.5.1
+silentcipher @ git+https://github.com/SesameAILabs/silentcipher.git@d46d7d0893a583d8968ab3a6626e2289faec9152
 
