@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from os import PathLike
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -7,6 +8,8 @@ from PIL import Image as PILImage
 from timm import create_model
 from timm import data as timm_data
 
+from ..download_progress import download_hf_file_with_progress, download_log, repo_cache_dir
+from .cache_paths import timm_model_cache_dir
 from .projector import ProjectorConfig, build_projector, resolve_projector_config
 
 
@@ -91,12 +94,41 @@ def build_character_transform(timm_model_id: str, image_size: int) -> Callable:
     The returned transform is a torchvision Compose and is safe to pickle for
     DataLoader multiprocessing workers.
     """
-    m = create_model(timm_model_id, pretrained=False)
+    m = create_model(timm_model_id, pretrained=False, cache_dir=timm_model_cache_dir())
     data_cfg = timm_data.resolve_model_data_config(m)
     data_cfg["input_size"] = (3, image_size, image_size)
     transform = timm_data.create_transform(**data_cfg, is_training=False)
     del m
     return transform
+
+
+def _hf_repo_id_from_timm_model_id(timm_model_id: str) -> str | None:
+    prefix = "hf_hub:"
+    if not str(timm_model_id).startswith(prefix):
+        return None
+    return str(timm_model_id)[len(prefix) :]
+
+
+def _download_timm_weights_with_progress(timm_model_id: str) -> Path | None:
+    repo_id = _hf_repo_id_from_timm_model_id(timm_model_id)
+    if repo_id is None:
+        return None
+
+    target_dir = repo_cache_dir(timm_model_cache_dir(), repo_id)
+    for filename in ("model.safetensors", "pytorch_model.bin"):
+        try:
+            return download_hf_file_with_progress(
+                repo_id,
+                filename,
+                target_dir,
+                item_type="image_encoder",
+            )
+        except Exception as exc:
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if status_code == 404:
+                continue
+            raise
+    raise RuntimeError(f"No supported timm weight file found in Hugging Face repo: {repo_id}")
 
 
 def _feature_dim_and_format(out: torch.Tensor, timm_model_id: str) -> tuple[int, str]:
@@ -131,7 +163,12 @@ def resolve_character_hidden_state_index(
     ``None`` means the backbone's normal forward output already matches.
     """
     warnings: list[str] = []
-    m = create_model(timm_model_id, pretrained=False, global_pool="")
+    m = create_model(
+        timm_model_id,
+        pretrained=False,
+        global_pool="",
+        cache_dir=timm_model_cache_dir(),
+    )
     reset_classifier = getattr(m, "reset_classifier", None)
     if callable(reset_classifier):
         reset_classifier(0)
@@ -235,11 +272,46 @@ class CharacterImageEncoder(nn.Module):
             projector_config = resolve_projector_config(projector_config)
 
         # Load backbone without classification head, retaining all spatial tokens.
-        backbone = create_model(
-            timm_model_id,
-            pretrained=pretrained,
-            global_pool="",
-        )
+        cache_dir = timm_model_cache_dir()
+        if pretrained:
+            weights_path = _download_timm_weights_with_progress(timm_model_id)
+            if weights_path is None:
+                with download_log(
+                    "image_encoder",
+                    timm_model_id,
+                    cache_dir=cache_dir,
+                    progress="huggingface",
+                ):
+                    backbone = create_model(
+                        timm_model_id,
+                        pretrained=True,
+                        global_pool="",
+                        cache_dir=cache_dir,
+                    )
+            else:
+                with download_log(
+                    "image_encoder",
+                    str(weights_path),
+                    cache_dir=cache_dir,
+                    progress="local",
+                ):
+                    backbone = create_model(
+                        timm_model_id,
+                        pretrained=True,
+                        global_pool="",
+                        cache_dir=cache_dir,
+                        pretrained_cfg_overlay={
+                            "file": str(weights_path),
+                            "source": "",
+                        },
+                    )
+        else:
+            backbone = create_model(
+                timm_model_id,
+                pretrained=False,
+                global_pool="",
+                cache_dir=cache_dir,
+            )
         reset_classifier = getattr(backbone, "reset_classifier", None)
         if callable(reset_classifier):
             reset_classifier(0)  # remove classifier head later

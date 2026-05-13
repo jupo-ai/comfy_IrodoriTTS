@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import gc
 import math
-import os
 import secrets
 import threading
 import time
@@ -15,6 +14,7 @@ import torchaudio
 from safetensors import safe_open
 from safetensors.torch import load_file as load_safetensors_file
 
+from .cache_paths import extension_data_dir, image_encoder_cache_root
 from .checkpoint_metadata import read_safetensors_metadata_config
 from .codec import DACVAECodec, patchify_latent, unpatchify_latent
 from .config import ModelConfig
@@ -46,14 +46,11 @@ def _request_comfy_free_memory(memory_required: int, device: torch.device) -> No
 
 
 def _extension_data_dir() -> Path:
-    return Path(__file__).resolve().parents[3] / "data"
+    return extension_data_dir()
 
 
-def _configure_hf_cache_env() -> None:
-    cache_dir = _extension_data_dir() / "huggingface"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("HF_HOME", "HF_HUB_CACHE", "TRANSFORMERS_CACHE", "TIMM_HOME"):
-        os.environ.setdefault(name, str(cache_dir))
+def _ensure_image_encoder_cache_dirs() -> None:
+    image_encoder_cache_root()
 
 
 def _is_mps_available() -> bool:
@@ -679,7 +676,7 @@ class InferenceRuntime:
 
     @classmethod
     def from_key(cls, key: RuntimeKey) -> InferenceRuntime:
-        _configure_hf_cache_env()
+        _ensure_image_encoder_cache_dirs()
         model_device = resolve_runtime_device(key.model_device)
         codec_device = resolve_runtime_device(key.codec_device)
         model_dtype = resolve_runtime_dtype(

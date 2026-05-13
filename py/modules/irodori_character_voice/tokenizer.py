@@ -2,6 +2,8 @@ from collections.abc import Iterable
 
 import torch
 
+from ..download_progress import download_hf_tokenizer_with_progress, download_log
+
 
 class ByteTokenizer:
     """Simple byte-level tokenizer for text-to-speech."""
@@ -87,13 +89,27 @@ class PretrainedTextTokenizer:
                 "Install with `pip install transformers sentencepiece`."
             ) from exc
 
-        tokenizer = AutoTokenizer.from_pretrained(
-            repo_id,
-            use_fast=True,
-            trust_remote_code=False,
-            local_files_only=local_files_only,
-            cache_dir=cache_dir,
-        )
+        source = repo_id
+        resolved_local_files_only = local_files_only
+        if cache_dir is not None and not local_files_only:
+            try:
+                source = str(download_hf_tokenizer_with_progress(repo_id, cache_dir))
+                resolved_local_files_only = True
+            except Exception as exc:
+                print(
+                    f"[download] tokenizer: self-managed download failed; falling back to Hugging Face cache: {exc}",
+                    flush=True,
+                )
+
+        progress = "local" if resolved_local_files_only and source != repo_id else "huggingface"
+        with download_log("tokenizer", source, cache_dir=cache_dir, progress=progress):
+            tokenizer = AutoTokenizer.from_pretrained(
+                source,
+                use_fast=True,
+                trust_remote_code=False,
+                local_files_only=resolved_local_files_only,
+                cache_dir=cache_dir,
+            )
         return cls(tokenizer=tokenizer, add_bos=add_bos)
 
     @property

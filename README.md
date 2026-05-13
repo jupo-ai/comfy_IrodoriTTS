@@ -67,6 +67,7 @@ codecとtokenizerは初回ロード時にHugging Faceから自動ダウンロー
 
 - tokenizer: `custom_nodes/comfy_IrodoriTTS/data/tokenizers`
 - codec: `custom_nodes/comfy_IrodoriTTS/data/codecs/<repo_id>`
+- Character Voice画像エンコーダー: `custom_nodes/comfy_IrodoriTTS/data/image_encoders`
 
 codecの`<repo_id>`部分は、`/`を`_`に置き換えたディレクトリ名になります。例: `facebook/dacvae-watermarked`は`custom_nodes/comfy_IrodoriTTS/data/codecs/facebook_dacvae-watermarked`に保存されます。
 

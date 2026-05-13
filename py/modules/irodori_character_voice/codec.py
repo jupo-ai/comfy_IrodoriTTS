@@ -6,7 +6,9 @@ from pathlib import Path
 
 import torch
 import torchaudio
-from huggingface_hub import hf_hub_download, hf_hub_url, list_repo_files
+from huggingface_hub import hf_hub_download, list_repo_files
+
+from ..download_progress import download_hf_file_with_progress, download_log
 
 _CODEC_DEFAULT = object()
 
@@ -18,35 +20,25 @@ def _hf_download_with_tqdm(repo_id: str, filename: str, cache_dir: Path) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        import requests
-        from tqdm.auto import tqdm
-
-        url = hf_hub_url(repo_id=repo_id, filename=filename)
-        tmp_path = target.with_name(target.name + ".tmp")
-        with requests.get(url, stream=True, timeout=30) as response:
-            response.raise_for_status()
-            total = int(response.headers.get("content-length") or 0) or None
-            desc = f"[codec] {repo_id}/{filename}"
-            with open(tmp_path, "wb") as f, tqdm(
-                total=total,
-                unit="B",
-                unit_scale=True,
-                unit_divisor=1024,
-                desc=desc,
-            ) as pbar:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    pbar.update(len(chunk))
-        tmp_path.replace(target)
+        download_hf_file_with_progress(
+            repo_id,
+            filename,
+            cache_dir,
+            item_type="codec",
+        )
         return str(target)
     except Exception:
-        return hf_hub_download(
-            repo_id=repo_id,
-            filename=filename,
-            local_dir=str(cache_dir),
-        )
+        with download_log(
+            "codec",
+            f"{repo_id}/{filename}",
+            cache_dir=cache_dir,
+            progress="huggingface",
+        ):
+            return hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                local_dir=str(cache_dir),
+            )
 
 
 def patchify_latent(latent: torch.Tensor, patch_size: int) -> torch.Tensor:
@@ -103,9 +95,20 @@ class DACVAECodec:
             from dacvae import DACVAE
         except ImportError:
             local_repo = Path(__file__).resolve().parents[2] / "dacvae"
+            local_repo_str = str(local_repo)
+            inserted_path = False
             if local_repo.exists():
-                sys.path.insert(0, str(local_repo))
-            from dacvae import DACVAE
+                inserted_path = local_repo_str not in sys.path
+                if inserted_path:
+                    sys.path.insert(0, local_repo_str)
+            try:
+                from dacvae import DACVAE
+            finally:
+                if inserted_path:
+                    try:
+                        sys.path.remove(local_repo_str)
+                    except ValueError:
+                        pass
 
         location = str(repo_id).strip()
         if location.startswith("hf://"):
@@ -138,7 +141,8 @@ class DACVAECodec:
                     location = str(existing[0]) if existing else repo_id
         elif not Path(location).exists() and "/" in location and not location.endswith(".pth"):
             try:
-                location = hf_hub_download(repo_id=location, filename="weights.pth")
+                with download_log("codec", f"{location}/weights.pth"):
+                    location = hf_hub_download(repo_id=location, filename="weights.pth")
                 print(f"[codec] dacvae: hf://{repo_id} -> {location}", flush=True)
             except Exception:
                 # Let DACVAE.load surface a clearer error if this is not a valid path/repo.
