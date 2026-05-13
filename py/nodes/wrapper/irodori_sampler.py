@@ -196,7 +196,12 @@ class IrodoriTTSSampler(io.ComfyNode):
         cfg_guidance_mode = cfg_config.get("cfg_guidance_mode", "independent")
         cfg_scale_text = float(cfg_config.get("cfg_scale_text", 3.0))
         cfg_scale_speaker = float(cfg_config.get("cfg_scale_speaker", 5.0))
+        cfg_scale_caption = float(
+            cfg_config.get("cfg_scale_caption", voice_design_config.get("cfg_scale_caption", 3.0))
+        )
         cfg_scale_override = cfg_config.get("cfg_scale_override", None)
+        if cfg_scale_override is None and str(cfg_guidance_mode).strip().lower() == "joint":
+            cfg_scale_override = cfg_scale_text
 
         req = SamplingRequest(
             text=str(text),
@@ -217,7 +222,7 @@ class IrodoriTTSSampler(io.ComfyNode):
             max_caption_len=voice_design_config.get("max_caption_len", None),
             num_steps=int(num_steps),
             cfg_scale_text=cfg_scale_text,
-            cfg_scale_caption=float(voice_design_config.get("cfg_scale_caption", 3.0)),
+            cfg_scale_caption=cfg_scale_caption,
             cfg_scale_speaker=cfg_scale_speaker,
             cfg_guidance_mode=str(cfg_guidance_mode),
             cfg_scale=cfg_scale_override,

@@ -179,7 +179,7 @@ class RuntimeKey:
     codec_deterministic_encode: bool = True
     codec_deterministic_decode: bool = True
     enable_watermark: bool = False
-    silentcipher_watermark_enabled: bool = True
+    silentcipher_watermark_enabled: bool = False
     compile_model: bool = False
     compile_dynamic: bool = False
     lora_path: str | None = None

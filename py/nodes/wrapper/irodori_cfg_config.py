@@ -36,12 +36,28 @@ class IrodoriCFGConfig(io.ComfyNode):
                     tooltip="参照話者条件のCFG強度です。大きいほど参照音声の話者性が強くなります。",
                 ),
                 io.Float.Input(
+                    "cfg_scale_caption",
+                    default=3.0,
+                    min=0.0,
+                    max=10.0,
+                    step=0.1,
+                    tooltip="VoiceDesign caption/style条件のCFG強度です。大きいほどキャプションへの追従が強くなります。",
+                ),
+                io.Float.Input(
+                    "cfg_scale_character",
+                    default=3.0,
+                    min=0.0,
+                    max=10.0,
+                    step=0.1,
+                    tooltip="Character Voiceのキャラクター画像条件のCFG強度です。大きいほど画像条件への追従が強くなります。",
+                ),
+                io.Float.Input(
                     "cfg_scale_override",
                     default=0.0,
                     min=0.0,
                     max=10.0,
                     step=0.1,
-                    tooltip="全CFG条件に共通の強度を指定します。0なら個別scaleを使用します。",
+                    tooltip="全CFG条件に共通の強度を指定します。0なら通常は個別scaleを使用し、jointではcfg_scale_textを共通強度として使用します。",
                 ),
                 io.Float.Input(
                     "cfg_min_t",
@@ -71,15 +87,24 @@ class IrodoriCFGConfig(io.ComfyNode):
         cfg_guidance_mode: str,
         cfg_scale_text: float,
         cfg_scale_speaker: float,
+        cfg_scale_caption: float,
+        cfg_scale_character: float,
         cfg_scale_override: float,
         cfg_min_t: float,
         cfg_max_t: float,
     ):
+        cfg_mode = str(cfg_guidance_mode)
+        common_scale = none_if_non_positive(float(cfg_scale_override))
+        if common_scale is None and cfg_mode.strip().lower() == "joint":
+            common_scale = float(cfg_scale_text)
+
         config = {
-            "cfg_guidance_mode": str(cfg_guidance_mode),
+            "cfg_guidance_mode": cfg_mode,
             "cfg_scale_text": float(cfg_scale_text),
             "cfg_scale_speaker": float(cfg_scale_speaker),
-            "cfg_scale_override": none_if_non_positive(float(cfg_scale_override)),
+            "cfg_scale_caption": float(cfg_scale_caption),
+            "cfg_scale_character": float(cfg_scale_character),
+            "cfg_scale_override": common_scale,
             "cfg_min_t": float(cfg_min_t),
             "cfg_max_t": float(cfg_max_t),
         }

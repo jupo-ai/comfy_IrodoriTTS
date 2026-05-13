@@ -18,14 +18,6 @@ class IrodoriVoiceDesignConfig(io.ComfyNode):
                     multiline=True,
                     tooltip="VoiceDesignモデル用の声質・話し方・感情などの説明文です。",
                 ),
-                io.Float.Input(
-                    "cfg_scale_caption",
-                    default=3.0,
-                    min=0.0,
-                    max=10.0,
-                    step=0.1,
-                    tooltip="caption/style条件のCFG強度です。VoiceDesignモデルで有効です。",
-                ),
                 io.Int.Input(
                     "max_caption_len",
                     default=0,
@@ -40,10 +32,9 @@ class IrodoriVoiceDesignConfig(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, caption: str, cfg_scale_caption: float, max_caption_len: int):
+    def execute(cls, caption: str, max_caption_len: int):
         config = {
             "caption": str(caption).strip() or None,
-            "cfg_scale_caption": float(cfg_scale_caption),
             "max_caption_len": None if max_caption_len <= 0 else int(max_caption_len),
         }
         return io.NodeOutput(config)

@@ -50,7 +50,7 @@ IrodoriTTSのチェックポイントと実行設定をまとめ、`irodori_mode
 | `lora_stack` | `IrodoriTTS LoRA Stack` | IrodoriTTS向けLoRAを適用します。 |
 | `ref_config` | `IrodoriTTS Reference Audio` | 参照音声による話者・雰囲気の指定を行います。 |
 | `voice_design_config` | `IrodoriTTS VoiceDesign Config` | VoiceDesignモデル向けの声質・話し方キャプションを指定します。 |
-| `cfg_config` | `IrodoriTTS CFG Config` | テキスト条件、話者条件、適用時刻などのCFG詳細を指定します。 |
+| `cfg_config` | `IrodoriTTS CFG Config` | テキスト、話者、VoiceDesignキャプション、Character Voice画像条件、適用時刻などのCFG詳細を指定します。 |
 | `duration_config` | `IrodoriTTS Duration Config` | v3モデルの自動秒数推定を補正します。Samplerの`seconds = 0`時に意味があります。 |
 | `rescale_config` | `IrodoriTTS Rescale Config` | 潜在の振れ幅やspeaker K/V補正を指定します。 |
 | `schedule_config` | `IrodoriTTS Schedule Config` | RFサンプリングの時刻スケジュールを指定します。 |
@@ -87,7 +87,6 @@ VoiceDesignモデル向けのキャプション条件を作成し、Samplerの`v
 | Input | Default | 説明 |
 | --- | --- | --- |
 | `caption` | 空文字 | 声質、話速、感情、話し方などの説明文です。 |
-| `cfg_scale_caption` | `3.0` | キャプション条件への追従強度です。上げるほどキャプションの影響が強くなります。 |
 | `max_caption_len` | `0` | キャプションtoken長の上限です。`0`の場合はチェックポイント側の標準値を使います。 |
 
 通常のIrodoriTTSモデルでは接続不要です。
@@ -101,7 +100,9 @@ CFGの詳細設定を作成し、Samplerの`cfg_config`へ接続します。
 | `cfg_guidance_mode` | `independent` | CFGの適用方式です。`independent`、`joint`、`alternating`から選びます。 |
 | `cfg_scale_text` | `3.0` | テキスト条件のCFG強度です。テキストへの追従が弱い場合に上げます。 |
 | `cfg_scale_speaker` | `5.0` | 話者条件のCFG強度です。参照音声への追従が弱い場合に上げます。 |
-| `cfg_scale_override` | `0.0` | テキスト・話者条件の共通CFG強度です。`0`の場合は無効です。 |
+| `cfg_scale_caption` | `3.0` | VoiceDesignキャプション条件のCFG強度です。上げるほどキャプションの影響が強くなります。 |
+| `cfg_scale_character` | `3.0` | Character Voiceのキャラクター画像条件のCFG強度です。上げるほど画像条件への追従が強くなります。 |
+| `cfg_scale_override` | `0.0` | 全CFG条件の共通強度です。`0`の場合は通常は無効ですが、`cfg_guidance_mode = joint`では`cfg_scale_text`を共通強度として使用します。 |
 | `cfg_min_t` | `0.5` | CFGを適用する拡散時刻の下限です。 |
 | `cfg_max_t` | `1.0` | CFGを適用する拡散時刻の上限です。 |
 
@@ -191,13 +192,12 @@ Irodori Character Voice対応チェックポイントで、キャラクター画
 | `seed` | `0` | 生成シードです。同じ条件で別候補を生成したい場合は値を変えます。 |
 | `seconds` | `30.0` | 生成する音声長です。Character Voiceのデモ実装では30秒固定が標準です。 |
 | `num_steps` | `40` | サンプリングステップ数です。 |
-| `cfg_scale_character` | `3.0` | キャラクター画像条件のCFG強度です。上げるほど画像条件への追従が強くなります。 |
 
 ### Optional Config Inputs
 
 | Input | 接続するノード | 説明 |
 | --- | --- | --- |
-| `cfg_config` | `IrodoriTTS CFG Config` | テキスト条件のCFG強度、CFG方式、適用時刻を指定します。`cfg_scale_speaker`は使用されません。 |
+| `cfg_config` | `IrodoriTTS CFG Config` | テキスト条件・キャラクター画像条件のCFG強度、CFG方式、適用時刻を指定します。`cfg_scale_speaker`と`cfg_scale_caption`は使用されません。 |
 | `rescale_config` | `IrodoriTTS Rescale Config` | Rescale補正を指定します。speaker K/V補正は使用されません。 |
 | `trim_tail_config` | `IrodoriTTS Trim Tail Config` | 末尾切り詰め判定のしきい値を指定します。Samplerの`trim_tail`が有効なときに使われます。 |
 

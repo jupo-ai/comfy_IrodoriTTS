@@ -67,18 +67,10 @@ class IrodoriCharacterVoiceSampler(io.ComfyNode):
                     max=120,
                     tooltip="サンプリングステップ数です。大きいほど遅くなります。",
                 ),
-                io.Float.Input(
-                    "cfg_scale_character",
-                    default=3.0,
-                    min=0.0,
-                    max=10.0,
-                    step=0.1,
-                    tooltip="キャラクター画像条件のCFG強度です。大きいほど画像条件への追従が強くなります。",
-                ),
                 IO_CFG_CONFIG.Input(
                     "cfg_config",
                     optional=True,
-                    tooltip="CFGの詳細設定です。cfg_scale_speakerはCharacter Voiceでは使用しません。",
+                    tooltip="CFGの詳細設定です。cfg_scale_speakerとcfg_scale_captionはCharacter Voiceでは使用しません。",
                 ),
                 IO_RESCALE_CONFIG.Input(
                     "rescale_config",
@@ -134,7 +126,6 @@ class IrodoriCharacterVoiceSampler(io.ComfyNode):
         seed: int,
         seconds: float,
         num_steps: int,
-        cfg_scale_character: float,
         batch_size: int,
         decode_mode: str,
         context_kv_cache: bool,
@@ -163,6 +154,8 @@ class IrodoriCharacterVoiceSampler(io.ComfyNode):
 
         cfg_guidance_mode = cfg_config.get("cfg_guidance_mode", "independent")
         cfg_scale_override = cfg_config.get("cfg_scale_override", None)
+        if cfg_scale_override is None and str(cfg_guidance_mode).strip().lower() == "joint":
+            cfg_scale_override = float(cfg_config.get("cfg_scale_text", 3.0))
         req = SamplingRequest(
             text=str(text),
             caption=None,
@@ -182,7 +175,7 @@ class IrodoriCharacterVoiceSampler(io.ComfyNode):
             cfg_scale_text=float(cfg_config.get("cfg_scale_text", 3.0)),
             cfg_scale_caption=0.0,
             cfg_scale_speaker=0.0,
-            cfg_scale_character=float(cfg_scale_character),
+            cfg_scale_character=float(cfg_config.get("cfg_scale_character", 3.0)),
             cfg_guidance_mode=str(cfg_guidance_mode),
             cfg_scale=cfg_scale_override,
             cfg_min_t=float(cfg_config.get("cfg_min_t", 0.5)),
